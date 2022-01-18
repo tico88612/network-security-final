@@ -179,7 +179,8 @@ class Window(Frame):
     def encryption_image(self):
         hash_data = self.sha2.digest()
         print(hash_data)
-        key = RSA.importKey(open('public.pem').read())
+        #key = RSA.importKey(open('public.pem').read())
+        key = RSA.importKey(open('private.pem').read())
         cipher = PKCS1_OAEP.new(key)
         ciphertext = cipher.encrypt(hash_data)
         self.ciphertext = ciphertext
@@ -193,23 +194,36 @@ class Window(Frame):
         _, img_encode = cv2.imencode('.jpg', img_numpy)
         img_bytes = img_encode.tobytes()
 
+        img_bytes+=ciphertext       # add signature THALIA
+
         self.sha2.update(img_bytes)
 
         img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
         img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
 
-        for i in range(0, self.watermark_height):
-            for j in range(0, self.watermark_width):
+
+
+        for i in range(0, self.original_height):    # loop watermarking THALIA
+            for j in range(0, self.original_width):
                 # k = random_points[i * self.watermark_width + j]
                 # x = int(k / self.original_width)
                 # y = int(k % self.original_width)
                 # img_numpy[x, y] ^= img_numpy2[i, j]
-                img_numpy[i, j] ^= img_numpy2[i, j]
+                # THALIA img_numpy[i, j] ^= img_numpy2[i%self.watermark_height, j%self.watermark_width]  # do watermark THALIA
+                
+                # THALIA LSB WATERMARKING
+                temp = 1 if img_numpy2[i%self.watermark_height][j%self.watermark_width][0]==255 else 0
+                
+                img_numpy[i][j][0]^=temp
+                img_numpy[i][j][1]^=temp
+                img_numpy[i][j][2]^=temp
+                # THALIA LSB WATERMARKING
+                
 
         _, img_encode = cv2.imencode('.jpg', img_numpy)
         img_bytes = img_encode.tobytes()
-
-        self.output_image_bytes = img_bytes + ciphertext
+        self.output_image_bytes = img_bytes # THALIA
+        # THALIA self.output_image_bytes = img_bytes + ciphertext
 
         with open("output.jpg", "wb") as f:
             f.write(self.output_image_bytes)
