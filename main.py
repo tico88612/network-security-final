@@ -194,36 +194,26 @@ class Window(Frame):
         _, img_encode = cv2.imencode('.jpg', img_numpy)
         img_bytes = img_encode.tobytes()
 
-        img_bytes+=ciphertext       # add signature THALIA
+        img_bytes+=ciphertext       # add signature
 
         self.sha2.update(img_bytes)
 
         img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
         img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
 
-
-
-        for i in range(0, self.original_height):    # loop watermarking THALIA
+        for i in range(0, self.original_height):    # watermarking loop
             for j in range(0, self.original_width):
-                # k = random_points[i * self.watermark_width + j]
-                # x = int(k / self.original_width)
-                # y = int(k % self.original_width)
-                # img_numpy[x, y] ^= img_numpy2[i, j]
-                # THALIA img_numpy[i, j] ^= img_numpy2[i%self.watermark_height, j%self.watermark_width]  # do watermark THALIA
-                
-                # THALIA LSB WATERMARKING
+                # LSB WATERMARKING
                 temp = 1 if img_numpy2[i%self.watermark_height][j%self.watermark_width][0]==255 else 0
-                
                 img_numpy[i][j][0]^=temp
                 img_numpy[i][j][1]^=temp
                 img_numpy[i][j][2]^=temp
-                # THALIA LSB WATERMARKING
+                # LSB WATERMARKING
                 
 
         _, img_encode = cv2.imencode('.jpg', img_numpy)
         img_bytes = img_encode.tobytes()
-        self.output_image_bytes = img_bytes # THALIA
-        # THALIA self.output_image_bytes = img_bytes + ciphertext
+        self.output_image_bytes = img_bytes
 
         with open("output.jpg", "wb") as f:
             f.write(self.output_image_bytes)
@@ -235,29 +225,40 @@ class Window(Frame):
             return  # user cancelled; stop this method
         with open(filename, "rb") as f:
             self.extract_image_bytes = f.read()
+            image_open = Image.open(filename)
+            w, h = image_open.size
+            self.extract_width = w
+            self.extract_height = h
+            self.extract_size = w * h
 
-            message_data = self.extract_image_bytes[:len(self.extract_image_bytes) - 256]
-            signature_data = self.extract_image_bytes[-256:]
-            # Watermark
-
-            img_buffer_numpy = np.frombuffer(message_data, dtype=np.uint8)
+        # Extract Watermark
+            # Get watermarked image
+            img_buffer_numpy = np.frombuffer(self.extract_image_bytes, dtype=np.uint8)
             img_numpy = cv2.imdecode(img_buffer_numpy, 1)
-            # h, w, _ = img_numpy.shape
-            # random_points = random.sample(range(h * w), self.watermark_size)
 
+            # Get Watermark image
             img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
             img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
 
-            for i in range(0, self.watermark_height):
-                for j in range(0, self.watermark_width):
-                    # k = random_points[i * self.watermark_width + j]
-                    # x = int(k / w)
-                    # y = int(k % w)
-                    # img_numpy[x, y] ^= img_numpy2[i, j]
-                    img_numpy[i, j] ^= img_numpy2[i, j]
 
+            for i in range(0, self.original_height):    # watermarking loop
+                for j in range(0, self.original_width):
+                    # LSB WATERMARKING
+                    temp = 1 if img_numpy2[i%self.watermark_height][j%self.watermark_width][0]==255 else 0
+                    img_numpy[i][j][0]^=temp
+                    img_numpy[i][j][1]^=temp
+                    img_numpy[i][j][2]^=temp
+                    # LSB WATERMARKING
+
+            # img_numpy become no watermark
             _, img_encode = cv2.imencode('.jpg', img_numpy)
+
             message_data = img_encode.tobytes()
+
+            # Extract Message and Signature
+            signature_data = message_data[-256:]
+            message_data = message_data[:len(self.extract_image_bytes) - 256]
+            
 
             # image_open = Image.open(filename)
             # self.original_image = ImageTk.PhotoImage(image_open)  # must keep a reference to this
@@ -268,14 +269,13 @@ class Window(Frame):
             # self.canvas.create_window(200, 200, window=label)
             hash1 = hashlib.sha256()
             hash1.update(message_data)
-            hash1_data = hash1.digest()
+            hash1_data = hash1.digest() #message hash
 
-            key = RSA.importKey(open('private.pem').read())
+            key = RSA.importKey(open('public.pem').read())
             cipher = PKCS1_OAEP.new(key)
             hash2_data = cipher.decrypt(signature_data)
 
             print(hash1_data == hash2_data)
-
 
     # # Function for encrypt bmp file use ECB mode
     # def EncryptBMP_ECB(self):
