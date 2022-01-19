@@ -27,23 +27,16 @@ class Window(Frame):
         rsa_menu = Menu(menu)
         rsa_menu.add_command(label="Generate RSA Key", command=self.generate_rsa_key)
         rsa_menu.add_command(label="Open RSA Key", command=self.open_rsa_key)
-        # rsa_menu.add_command(label="Open Original Image", command=self.open_original_image)
-        # rsa_menu.add_command(label="Open WaterMark Image", command=self.open_watermark_image)
-        # rsa_menu.add_command(label="Encryption Image", command=self.encryption_image)
-        # rsa_menu.add_command(label="Decryption Image", command=self.decryption_image)
+        rsa_menu.add_command(label="Sign & Watermark Image", command=self.encryption_image)
+        rsa_menu.add_command(label="Verify Image", command=self.decryption_image)
         rsa_menu.add_command(label="Exit", command=self.quit)
         menu.add_cascade(label="RSA", menu=rsa_menu)
 
-        image_menu = Menu(menu)
-        image_menu.add_command(label="Open Original Image", command=self.open_original_image)
-        image_menu.add_command(label="Open WaterMark Image", command=self.open_watermark_image)
-        image_menu.add_command(label="Exit", command=self.quit)
-        menu.add_cascade(label="Image", menu=image_menu)
-
         text_menu = Menu(menu)
-        text_menu.add_command(label="Encryption Image", command=self.encryption_image)
-        text_menu.add_command(label="Decryption Image", command=self.decryption_image)
-        menu.add_cascade(label="Encryption", menu=text_menu)
+        text_menu.add_command(label="Generate RSA Key", command=self.generate_elgamal_key)
+        text_menu.add_command(label="Sign & Watermark Image", command=self.encryption_image_elgamal)
+        text_menu.add_command(label="Verify Image", command=self.decryption_image_elgamal)
+        menu.add_cascade(label="ElGamal", menu=text_menu)
 
         self.canvas = Canvas(self)
         self.canvas.pack(fill=BOTH, expand=True)
@@ -53,16 +46,14 @@ class Window(Frame):
         self.sha2 = hashlib.sha256()
         self.key = None
         self.original_image = None
-        self.watermark_image = None
-        self.original_size = None
-        self.original_width = None
-        self.original_height = None
-        self.watermark_size = None
-        self.watermark_width = None
-        self.watermark_height = None
+        self.output_image = None
+
+        #self.watermarked_image = None
+        self.out_display = None
+        self.ori_display = None
+        self.res_display = None
         self.signature = None
         self.original_image_bytes = None
-        self.watermark_image_bytes = None
         self.output_image_bytes = None
         self.extract_image_bytes = None
 
@@ -125,6 +116,20 @@ class Window(Frame):
         with open("public.pem", "wb") as f:
             f.write(public_key)
 
+    def generate_elgamal_key(self):
+        # 2048 位元 RSA 金鑰
+        self.key = RSA.generate(2048)
+
+        # RSA 私鑰
+        private_key = self.key.export_key()
+        with open("private.pem", "wb") as f:
+            f.write(private_key)
+        # RSA 公鑰
+        public_key = self.key.publickey().export_key()
+        with open("public.pem", "wb") as f:
+            f.write(public_key)
+
+
     def open_rsa_key(self):
         filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select PEM File",
                                               filetypes=[("PEM Files", "*.pem")])
@@ -135,25 +140,11 @@ class Window(Frame):
             self.key = RSA.import_key(encoded_key)
             public_key = self.key.publickey().export_key()
             print(public_key)
-
-    def open_watermark_image(self):
-        filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
-                                              filetypes=[("JPG Files", "*.bmp")])
-        if not filename:
-            return  # user cancelled; stop this method
-        with open(filename, "rb") as f:
-            self.watermark_image_bytes = f.read()
-            image_open = Image.open(filename)
-            w, h = image_open.size
-            self.watermark_width = w
-            self.watermark_height = h
-            self.watermark_size = w * h
-            self.watermark_image = ImageTk.PhotoImage(image_open)  # must keep a reference to this
-            if image_open is not None:  # if an image was already loaded
-                self.canvas.delete(image_open)  # remove the previous image
-
-            label = Label(root, text="Watermark", image=self.watermark_image, compound='top')
-            self.canvas.create_window(800, 200, window=label)
+            # Create text widget and specify size.
+            T = Text(root, height=5, width=52)
+            self.canvas.create_window(250, 100, window=T)
+            # Insert The Fact.
+            T.insert(END, public_key)
 
     def open_original_image(self):
         filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
@@ -161,21 +152,27 @@ class Window(Frame):
         if not filename:
             return  # user cancelled; stop this method
         self.canvas.delete('all')
+        self.original_image = cv2.imread(filename)
         with open(filename, "rb") as f:
-            self.original_image_bytes = f.read()
             image_open = Image.open(filename)
-            w, h = image_open.size
-            self.original_width = w
-            self.original_height = h
-            self.original_size = w * h
-            self.original_image = ImageTk.PhotoImage(image_open)  # must keep a reference to this
+            self.ori_display = ImageTk.PhotoImage(image_open)  # must keep a reference to this
             if image_open is not None:  # if an image was already loaded
                 self.canvas.delete(image_open)  # remove the previous image
-            label = Label(root, text="Original", image=self.original_image, compound='top')
-            self.canvas.create_window(200, 200, window=label)
-        self.sha2.update(self.original_image_bytes)
-        hash_data = SHA256.new(self.original_image_bytes)
-        print(hash_data)
+            label = Label(root, text="Original", image=self.ori_display, compound='top')
+            self.canvas.create_window(300, 300, window=label)
+
+    def open_output_image(self):
+        filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
+                                              filetypes=[("JPG Files", "*.bmp")])
+        if not filename:
+            return  # user cancelled; stop this method
+        self.output_image = cv2.imread(filename)
+        with open(filename, "rb") as f:
+            image_open = Image.open(filename)
+            self.out_display = ImageTk.PhotoImage(image_open)  # must keep a reference to this
+            label = Label(root, text="Watermarked", image=self.out_display, compound='top')
+            self.canvas.create_window(900, 300, window=label)
+
 
     def messageToBinary(self,message):
         if type(message) == str:
@@ -188,7 +185,8 @@ class Window(Frame):
             raise TypeError("Input type not supported")
         
     def encryption_image(self):
-        image = cv2.imread("tux.bmp")       
+        self.open_original_image()
+        image = self.original_image
         self.hash_data = SHA256.new(image.tobytes())
         key = RSA.importKey(open('private.pem').read())
         signer = PKCS115_SigScheme(key)
@@ -228,17 +226,22 @@ class Window(Frame):
                 # if data is encoded, just break out of the loop
                 if data_index >= data_len:
                     break
-        cv2.imwrite("output.bmp", image)
-
+        cv2.imwrite("watermarked.bmp", image)
+        with open("watermarked.bmp", "rb") as f:
+            image_open = Image.open("watermarked.bmp")
+            self.res_display = ImageTk.PhotoImage(image_open)  # must keep a reference to this
+            label = Label(root, text="Watermarked", image=self.res_display, compound='top')
+            self.canvas.create_window(900, 300, window=label)
 
     def decryption_image(self):
-
-        ouimage = cv2.imread("output.bmp")
-        oriimage = cv2.imread("tux.bmp")
+        self.open_original_image()
+        self.open_output_image()
+        ouimage = self.output_image
+        oriimage = self.original_image
         extimage = ouimage
         h, w = ouimage.shape[:2]
         binary_data = ""
-        decoded_data = ""
+        
         decode_done=0
         x= "".join(f"{ord(i):08b}" for i in ("#####"))
         print(x)
@@ -268,27 +271,56 @@ class Window(Frame):
         for i in range(len(all_bytes)):
             signature_data+=int(all_bytes[i], 2).to_bytes(1, byteorder='big')
        
-        
         print(signature_data)
-        print(decoded_data)
+        cv2.imwrite("extracted.bmp", extimage)
+        with open("extracted.bmp", "rb") as f:
+            image_open = Image.open("extracted.bmp")
+            self.res_display = ImageTk.PhotoImage(image_open)  # must keep a reference to this
+            label = Label(root, text="Extracted Image", image=self.res_display, compound='top')
+            self.canvas.create_window(1500, 300, window=label)
 
-        extr_hash = SHA256.new(extimage.tobytes())
         
+        extr_hash = SHA256.new(extimage.tobytes())
+
         key = RSA.importKey(open('public.pem').read())
         verifier = PKCS115_SigScheme(key)
         try:
             verifier.verify(extr_hash, signature_data)
-            print("Signature is valid.")
+            txt = "Signature is valid. Image is not modified."
         except:
-            print("Signature is invalid.")
+            txt = "Signature is invalid."
+        print(txt)
+        label = Label(root, text=txt, compound='top')
+        self.canvas.create_window(700, 600, window=label)
 
-       
+        with open("private.pem", "rb") as f:
+            encoded_key = f.read()
+            self.key = RSA.import_key(encoded_key)
+            public_key = self.key.publickey().export_key()
+            print(public_key)
+
+            # Create text widget and specify size.
+            T = Text(root, height=20, width=80)
+            self.canvas.create_window(300, 800, window=T)
+            # Insert The Fact.
+            T.insert(END, public_key)
+            # Create text widget and specify size.
+
+             # Create text widget and specify size.
+            T = Text(root, height=20, width=80)
+            self.canvas.create_window(900, 800, window=T)
+            # Insert The Fact.
+            T.insert(END, encoded_key)
+    
+    
+     # Create text widget and specify size.
+        
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     root = Tk()
     root.geometry("%dx%d" % (1024, 768))
-    root.title("Symmetryc Encryption GUI")
+    root.title("Digital Signature and Watermarking GUI")
     app = Window(root)
     app.pack(fill=BOTH, expand=1)
     root.mainloop()
