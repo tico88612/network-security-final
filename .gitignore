@@ -1,2 +1,6 @@
 /venv/
 .idea
+output.bmp
+output.jpg
+private.pem
+public.pem

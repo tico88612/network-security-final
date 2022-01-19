@@ -7,6 +7,8 @@ import cv2
 import numpy as np
 from Crypto.Cipher import PKCS1_OAEP
 from Crypto.PublicKey import RSA
+from Crypto.Signature.pkcs1_15 import PKCS115_SigScheme
+from Crypto.Hash import SHA256
 from tkinter import *
 from tkinter import filedialog
 
@@ -58,7 +60,7 @@ class Window(Frame):
         self.watermark_size = None
         self.watermark_width = None
         self.watermark_height = None
-        self.ciphertext = None
+        self.signature = None
         self.original_image_bytes = None
         self.watermark_image_bytes = None
         self.output_image_bytes = None
@@ -136,7 +138,7 @@ class Window(Frame):
 
     def open_watermark_image(self):
         filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
-                                              filetypes=[("JPG Files", "*.jpg")])
+                                              filetypes=[("JPG Files", "*.bmp")])
         if not filename:
             return  # user cancelled; stop this method
         with open(filename, "rb") as f:
@@ -155,7 +157,7 @@ class Window(Frame):
 
     def open_original_image(self):
         filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
-                                              filetypes=[("JPG Files", "*.jpg")])
+                                              filetypes=[("JPG Files", "*.bmp")])
         if not filename:
             return  # user cancelled; stop this method
         self.canvas.delete('all')
@@ -172,18 +174,20 @@ class Window(Frame):
             label = Label(root, text="Original", image=self.original_image, compound='top')
             self.canvas.create_window(200, 200, window=label)
         self.sha2.update(self.original_image_bytes)
-        hash_data = self.sha2.digest()
+        # hash_data = self.sha2.new(self.original_image_bytes)
+        hash_data = SHA256.new(self.original_image_bytes)
         # hash_data = self.sha2.hexdigest()
         print(hash_data)
 
     def encryption_image(self):
-        hash_data = self.sha2.digest()
+        # hash_data = self.sha2.new()
+        hash_data = SHA256.new(self.original_image_bytes)
         print(hash_data)
         #key = RSA.importKey(open('public.pem').read())
         key = RSA.importKey(open('private.pem').read())
-        cipher = PKCS1_OAEP.new(key)
-        ciphertext = cipher.encrypt(hash_data)
-        self.ciphertext = ciphertext
+        signer = PKCS115_SigScheme(key)
+        signature = signer.sign(hash_data)
+        self.signature = signature
 
         # Watermark
         # random_points = random.sample(range(self.original_size), self.watermark_size)
@@ -191,12 +195,16 @@ class Window(Frame):
         img_buffer_numpy = np.frombuffer(self.original_image_bytes, dtype=np.uint8)
         img_numpy = cv2.imdecode(img_buffer_numpy, 1)
 
-        _, img_encode = cv2.imencode('.jpg', img_numpy)
+        _, img_encode = cv2.imencode('.bmp', img_numpy)
         img_bytes = img_encode.tobytes()
 
-        img_bytes+=ciphertext       # add signature
-
+        img_bytes+=signature       # append signature
+        print("image byte ")
+        print(img_bytes)
         self.sha2.update(img_bytes)
+
+        img_buffer_numpy = np.frombuffer(img_bytes, dtype=np.uint8)
+        img_numpy = cv2.imdecode(img_buffer_numpy, 1)
 
         img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
         img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
@@ -211,16 +219,16 @@ class Window(Frame):
                 # LSB WATERMARKING
                 
 
-        _, img_encode = cv2.imencode('.jpg', img_numpy)
+        _, img_encode = cv2.imencode('.bmp', img_numpy)
         img_bytes = img_encode.tobytes()
         self.output_image_bytes = img_bytes
 
-        with open("output.jpg", "wb") as f:
+        with open("output.bmp", "wb") as f:
             f.write(self.output_image_bytes)
 
     def decryption_image(self):
         filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
-                                              filetypes=[("JPG Files", "*.jpg")])
+                                              filetypes=[("JPG Files", "*.bmp")])
         if not filename:
             return  # user cancelled; stop this method
         with open(filename, "rb") as f:
@@ -251,10 +259,12 @@ class Window(Frame):
                     # LSB WATERMARKING
 
             # img_numpy become no watermark
-            _, img_encode = cv2.imencode('.jpg', img_numpy)
-
+            _, img_encode = cv2.imencode('.bmp', img_numpy)
+            #signature_data = message_data[-256:]
+            #message_data = message_data[:len(self.extract_image_bytes) - 256]
             message_data = img_encode.tobytes()
-
+            print("message_data ")
+            print(message_data)
             # Extract Message and Signature
             signature_data = message_data[-256:]
             message_data = message_data[:len(self.extract_image_bytes) - 256]
@@ -267,15 +277,17 @@ class Window(Frame):
             #
             # label = Label(root, text="Original", image=self.original_image, compound='top')
             # self.canvas.create_window(200, 200, window=label)
-            hash1 = hashlib.sha256()
-            hash1.update(message_data)
-            hash1_data = hash1.digest() #message hash
+            # hash1 = hashlib.sha256()
+            # hash1.update(message_data)
+            hash1_data = SHA256.new(message_data) #message hash
 
             key = RSA.importKey(open('public.pem').read())
-            cipher = PKCS1_OAEP.new(key)
-            hash2_data = cipher.decrypt(signature_data)
-
-            print(hash1_data == hash2_data)
+            verifier = PKCS115_SigScheme(key)
+            try:
+                verifier.verify(hash1_data, signature_data)
+                print("Signature is valid.")
+            except:
+                print("Signature is invalid.")
 
     # # Function for encrypt bmp file use ECB mode
     # def EncryptBMP_ECB(self):
