@@ -174,169 +174,115 @@ class Window(Frame):
             label = Label(root, text="Original", image=self.original_image, compound='top')
             self.canvas.create_window(200, 200, window=label)
         self.sha2.update(self.original_image_bytes)
-        # hash_data = self.sha2.new(self.original_image_bytes)
         hash_data = SHA256.new(self.original_image_bytes)
-        # hash_data = self.sha2.hexdigest()
         print(hash_data)
 
+    def messageToBinary(self,message):
+        if type(message) == str:
+            return ''.join([ format(ord(i), "08b") for i in message ])
+        elif type(message) == bytes or type(message) == np.ndarray:
+            return [ format(i, "08b") for i in message ]
+        elif type(message) == int or type(message) == np.uint8:
+            return format(message, "08b")
+        else:
+            raise TypeError("Input type not supported")
+        
     def encryption_image(self):
-        # hash_data = self.sha2.new()
-        hash_data = SHA256.new(self.original_image_bytes)
-        print(hash_data)
-        #key = RSA.importKey(open('public.pem').read())
+        image = cv2.imread("tux.bmp")       
+        self.hash_data = SHA256.new(image.tobytes())
         key = RSA.importKey(open('private.pem').read())
         signer = PKCS115_SigScheme(key)
-        signature = signer.sign(hash_data)
+        signature = signer.sign(self.hash_data)
         self.signature = signature
 
-        # Watermark
-        # random_points = random.sample(range(self.original_size), self.watermark_size)
-        # print(random_points)
-        img_buffer_numpy = np.frombuffer(self.original_image_bytes, dtype=np.uint8)
-        img_numpy = cv2.imdecode(img_buffer_numpy, 1)
+        print(self.signature)
+        print(self.signature[0],bin(self.signature[0])[1])
 
-        _, img_encode = cv2.imencode('.bmp', img_numpy)
-        img_bytes = img_encode.tobytes()
+        listToStrSig = ''.join([format(elem, '08b') for elem in self.signature])
+        x= "".join(f"{ord(i):08b}" for i in ("#####"))
+        listToStrSig += x # you can use any string as the delimeter
+        print(listToStrSig)
+        data_index = 0
+        data_len = len(listToStrSig)
 
-        img_bytes+=signature       # append signature
-        print("image byte ")
-        print(img_bytes)
-        self.sha2.update(img_bytes)
+        for values in image:   # watermarking loop
+            for pixel in values:            
+                # convert RGB values to binary format
+                r, g, b = self.messageToBinary(pixel)
+                # modify the least significant bit only if there is still data to store
+                if data_index < data_len:
+                    # hide the data into least significant bit of red pixel
+                    temp = 1 if listToStrSig[data_index]=='1' else 0
+                    pixel[0] ^= temp
+                    data_index += 1
+                if data_index < data_len:
+                    # hide the data into least significant bit of green pixel
+                    temp = 1 if listToStrSig[data_index]=='1' else 0
+                    pixel[1] ^= temp
+                    data_index += 1
+                if data_index < data_len:
+                    # hide the data into least significant bit of  blue pixel
+                    temp = 1 if listToStrSig[data_index]=='1' else 0
+                    pixel[2] ^= temp
+                    data_index += 1
+                # if data is encoded, just break out of the loop
+                if data_index >= data_len:
+                    break
+        cv2.imwrite("output.bmp", image)
 
-        img_buffer_numpy = np.frombuffer(img_bytes, dtype=np.uint8)
-        img_numpy = cv2.imdecode(img_buffer_numpy, 1)
-
-        img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
-        img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
-
-        for i in range(0, self.original_height):    # watermarking loop
-            for j in range(0, self.original_width):
-                # LSB WATERMARKING
-                temp = 1 if img_numpy2[i%self.watermark_height][j%self.watermark_width][0]==255 else 0
-                img_numpy[i][j][0]^=temp
-                img_numpy[i][j][1]^=temp
-                img_numpy[i][j][2]^=temp
-                # LSB WATERMARKING
-                
-
-        _, img_encode = cv2.imencode('.bmp', img_numpy)
-        img_bytes = img_encode.tobytes()
-        self.output_image_bytes = img_bytes
-
-        with open("output.bmp", "wb") as f:
-            f.write(self.output_image_bytes)
 
     def decryption_image(self):
-        filename = filedialog.askopenfilename(initialdir=os.getcwd(), title="Select JPG File",
-                                              filetypes=[("JPG Files", "*.bmp")])
-        if not filename:
-            return  # user cancelled; stop this method
-        with open(filename, "rb") as f:
-            self.extract_image_bytes = f.read()
-            image_open = Image.open(filename)
-            w, h = image_open.size
-            self.extract_width = w
-            self.extract_height = h
-            self.extract_size = w * h
 
-        # Extract Watermark
-            # Get watermarked image
-            img_buffer_numpy = np.frombuffer(self.extract_image_bytes, dtype=np.uint8)
-            img_numpy = cv2.imdecode(img_buffer_numpy, 1)
+        ouimage = cv2.imread("output.bmp")
+        oriimage = cv2.imread("tux.bmp")
+        extimage = ouimage
+        h, w = ouimage.shape[:2]
+        binary_data = ""
+        decoded_data = ""
+        decode_done=0
+        x= "".join(f"{ord(i):08b}" for i in ("#####"))
+        print(x)
 
-            # Get Watermark image
-            img_buffer_numpy2 = np.frombuffer(self.watermark_image_bytes, dtype=np.uint8)
-            img_numpy2 = cv2.imdecode(img_buffer_numpy2, 1)
+        for i in range(0, h):    # watermarking loop
+            if decode_done==1: break
+            for j in range(0, w):
+                if decode_done==1: break
+                pixel = ouimage[i][j]
+                oripixel = oriimage[i][j]
+                r, g, b = self.messageToBinary(pixel)
+                # modify the least significant bit only if there is still data to store
+                for k in range(3):
+                    binary_data += '1' if (pixel[k] ^ oripixel[k])==1 else '0'
+                    extimage[i][j][k]=ouimage[i][j][k] ^ (pixel[k] ^ oripixel[k])
+                    if (len(binary_data)%8==0):
+                        if binary_data[-40:]==x: # decoded_data[-5:] == "#####": #check if we have reached the delimeter which is "#####"
+                            decode_done=1
+                            break
+                if decode_done==1: break
+        
+        print(binary_data)
+         # split by 8-bits
+        all_bytes = [ binary_data[i: i+8] for i in range(0, len(binary_data), 8) ]
+        all_bytes= all_bytes[:-5]
+        signature_data =bytes()
+        for i in range(len(all_bytes)):
+            signature_data+=int(all_bytes[i], 2).to_bytes(1, byteorder='big')
+       
+        
+        print(signature_data)
+        print(decoded_data)
 
+        extr_hash = SHA256.new(extimage.tobytes())
+        
+        key = RSA.importKey(open('public.pem').read())
+        verifier = PKCS115_SigScheme(key)
+        try:
+            verifier.verify(extr_hash, signature_data)
+            print("Signature is valid.")
+        except:
+            print("Signature is invalid.")
 
-            for i in range(0, self.original_height):    # watermarking loop
-                for j in range(0, self.original_width):
-                    # LSB WATERMARKING
-                    temp = 1 if img_numpy2[i%self.watermark_height][j%self.watermark_width][0]==255 else 0
-                    img_numpy[i][j][0]^=temp
-                    img_numpy[i][j][1]^=temp
-                    img_numpy[i][j][2]^=temp
-                    # LSB WATERMARKING
-
-            # img_numpy become no watermark
-            _, img_encode = cv2.imencode('.bmp', img_numpy)
-            #signature_data = message_data[-256:]
-            #message_data = message_data[:len(self.extract_image_bytes) - 256]
-            message_data = img_encode.tobytes()
-            print("message_data ")
-            print(message_data)
-            # Extract Message and Signature
-            signature_data = message_data[-256:]
-            message_data = message_data[:len(self.extract_image_bytes) - 256]
-            
-
-            # image_open = Image.open(filename)
-            # self.original_image = ImageTk.PhotoImage(image_open)  # must keep a reference to this
-            # if image_open is not None:  # if an image was already loaded
-            #     self.canvas.delete(image_open)  # remove the previous image
-            #
-            # label = Label(root, text="Original", image=self.original_image, compound='top')
-            # self.canvas.create_window(200, 200, window=label)
-            # hash1 = hashlib.sha256()
-            # hash1.update(message_data)
-            hash1_data = SHA256.new(message_data) #message hash
-
-            key = RSA.importKey(open('public.pem').read())
-            verifier = PKCS115_SigScheme(key)
-            try:
-                verifier.verify(hash1_data, signature_data)
-                print("Signature is valid.")
-            except:
-                print("Signature is invalid.")
-
-    # # Function for encrypt bmp file use ECB mode
-    # def EncryptBMP_ECB(self):
-    #     plain_data = self.open_file_image()
-    #     self_aes = SelfAES()
-    #     need_trim = len(plain_data) % 16  # 截斷
-    #     clear_trimmed = plain_data[64:-need_trim]  # 截斷 16 倍數
-    #     cipher_data = self_aes.ecb_encrypt(clear_trimmed)
-    #     cipher_data = plain_data[0:64] + cipher_data + plain_data[-need_trim:]
-    #     with open("tux_ecb.bmp", "wb") as f:
-    #         f.write(cipher_data)
-    #     self.Display_BMP("tux_ecb.bmp")
-    #
-    # # Function for encrypt bmp file use ECB mode
-    # def EncryptBMP_CBC(self):
-    #     plain_data = self.open_file_image()
-    #     self_aes = SelfAES()
-    #     need_trim = len(plain_data) % 16  # 截斷
-    #     clear_trimmed = plain_data[64:-need_trim]  # 截斷 16 倍數
-    #     cipher_data = self_aes.cbc_encrypt(clear_trimmed)
-    #     cipher_data = plain_data[0:64] + cipher_data + plain_data[-need_trim:]
-    #     with open("tux_cbc.bmp", "wb") as f:
-    #         f.write(cipher_data)
-    #     self.Display_BMP("tux_cbc.bmp")
-    #
-    # # Function for encrypt bmp file use ECB mode
-    # def DecryptBMP_ECB(self):
-    #     cipher_data = self.open_file_image()
-    #     self_aes = SelfAES()
-    #     need_trim = len(cipher_data) % 16  # 截斷
-    #     clear_trimmed = cipher_data[64:-need_trim]  # 截斷 16 倍數
-    #     plain_data = self_aes.ecb_decrypt(clear_trimmed)
-    #     plain_data = cipher_data[0:64] + plain_data + cipher_data[-need_trim:]
-    #     with open("tux_ecb_return.bmp", "wb") as f:
-    #         f.write(plain_data)
-    #     self.Display_BMP("tux_ecb_return.bmp")
-    #
-    # # Function for encrypt bmp file use ECB mode
-    # def DecryptBMP_CBC(self):
-    #     cipher_data = self.open_file_image()
-    #     self_aes = SelfAES()
-    #     need_trim = len(cipher_data) % 16  # 截斷
-    #     clear_trimmed = cipher_data[64:-need_trim]  # 截斷 16 倍數
-    #     plain_data = self_aes.cbc_decrypt(clear_trimmed)
-    #     plain_data = cipher_data[0:64] + plain_data + cipher_data[-need_trim:]
-    #     with open("tux_cbc_return.bmp", "wb") as f:
-    #         f.write(plain_data)
-    #     self.Display_BMP("tux_cbc_return.bmp")
-
+       
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
